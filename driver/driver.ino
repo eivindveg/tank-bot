@@ -1,3 +1,4 @@
+#include <math.h>
 #include <Makeblock.h>
 #include <SoftwareSerial.h>
 #include <Wire.h>
@@ -8,9 +9,10 @@ MeInfraredReceiver infraredReceiverDecode(PORT_6);
 MeUltrasonicSensor UltrasonicSensor(PORT_3);
 
 #define MAX_DIST 150
-int moveSpeed = 75;
-int turnSpeed = 200;
-int minSpeed = 45;
+#define SENSOR_DIST 10
+
+int moveSpeed = 190;
+int turnRate = 2;
 int incomingByte [2];
 
 uint8_t mode = 0;
@@ -26,63 +28,76 @@ void setup()
 
 void loop()
 {
+  Serial.print("Left reading: ");
+  Serial.println(incomingByte[0]);
+  Serial.print("Right reading: ");
+  Serial.println(incomingByte[1]);
+    if (!isTrapped()) {
+      int closest = min(incomingByte[0], incomingByte[1]);
+      int farthest = max(incomingByte[0], incomingByte[1]);
+      if (closest >= MAX_DIST - SENSOR_DIST) {
+        Drive(0);
+      } else if (farthest < 5) {
+        Stop();
 
-  if (millis() % 50 == 0)
-  {
-    ultrCarProcess();
-  }
+      }else if(farthest < 10) {
+        if(incomingByte[0] > incomingByte[1]) {
+          DriveAccurate(-1, 1);
+        } else {
+          DriveAccurate(1, -1);
+        }
+      } else {
+        int sides[] = {SENSOR_DIST, incomingByte[0], incomingByte[1], SENSOR_DIST};
+        double angle = calculateTurnAngle(sides);
+        Drive(angle);
+        Serial.println(angle);
+      }
+    } else {
+      Stop();
+    }
+  delay(50);
+
+  
 }
 
+void Drive(double angle) {
+  double left = (1 - angle) * moveSpeed;
+  double right = (1 + angle) * moveSpeed;
 
-
-void Forward()
-{
-  Serial.println("forward");
-  MotorL.run(moveSpeed);
-  MotorR.run(moveSpeed);
-}
-void Backward()
-{
-  Serial.println("back");
-  MotorL.run(-moveSpeed);
-  MotorR.run(-moveSpeed);
+  DriveAccurate(left, right);
 }
 
-void BackwardAndTurnLeft()
-{
-  Serial.println("back left");
-  MotorL.run(-moveSpeed / 4);
-  MotorR.run(-moveSpeed);
+void DriveAccurate(int left, int right) {
+    Serial.print("Left: ");
+  Serial.println(left);
+  Serial.print("Right: ");
+  Serial.println(right);
+  Serial.print("My heading is: ");
+  Serial.println(left > right ? "right" : "left");
+
+  MotorL.run(left);
+  MotorR.run(right);
 }
-void BackwardAndTurnRight()
-{
-  Serial.println("back right");
-  MotorL.run(-moveSpeed);
-  MotorR.run(-moveSpeed / 4);
+
+double calculateTurnAngle(int sides[4]) {
+  int triangleSide = sides[1] - sides[2];
+
+  int hypotenuse = calculateHypotenuse(SENSOR_DIST, triangleSide);
+  int triangle[] = {SENSOR_DIST, triangleSide, hypotenuse};
+  double sinA = ((double)triangleSide) / ((double) hypotenuse);
+  double radians = asin(sinA);
+
+  return sinA;
 }
-void TurnLeft()
-{
-  Serial.println("left");
-  MotorL.run(-moveSpeed);
-  MotorR.run(moveSpeed);
+
+int calculateHypotenuse(int side1, int side2) {
+  return sqrt(pow(side1, 2) + pow(side2, 2));
 }
-void TurnLeftForward() {
-  Serial.println("forward left");
-  MotorL.run(moveSpeed / 4);
-  MotorR.run(moveSpeed);
+
+bool isTrapped() {
+  return incomingByte[0] < 10 && incomingByte[1] < 10 && readBackwardDistance() < 10;
 }
-void TurnRightForward()
-{
-  Serial.println("forward right");
-  MotorL.run(moveSpeed);
-  MotorR.run(moveSpeed / 4);
-}
-void TurnRight()
-{
-  Serial.println("right");
-  MotorL.run(moveSpeed);
-  MotorR.run(-moveSpeed);
-}
+
 void Stop()
 {
   Serial.println("Stop");
@@ -110,46 +125,4 @@ void readBytes(int howMany) {
 byte readBackwardDistance() {
   int backDistance = UltrasonicSensor.distanceCm();
   return backDistance != 0 ? backDistance : MAX_DIST;
-}
-
-void ultrCarProcess()
-{
-  int backDistance = readBackwardDistance();
-  Serial.print("Left: ");
-  Serial.println(incomingByte[0]);
-  Serial.print("Right: ");
-  Serial.println(incomingByte[1]);
-  Serial.print("Back: ");
-  Serial.println(backDistance);
-  int distance = min(incomingByte[0], incomingByte[1]);
-  Serial.print("Minimum forward: ");
-  Serial.println(distance);
-  if (distance > 50) {
-    Forward();
-  } else if (distance > 30) {
-    if (incomingByte[0] > incomingByte[1])
-    {
-      TurnLeftForward();
-    }
-    else
-    {
-      TurnRightForward();
-    }
-  } else if (distance <= 30) {
-    if (backDistance < 25) {
-      if (backDistance < 10) {
-        Stop();
-      } else if (incomingByte[0] > incomingByte[1]) {
-        TurnLeft();
-      } else {
-        TurnRight();
-      }
-    } else if (incomingByte[0] > incomingByte[1]) {
-      BackwardAndTurnRight();
-    } else if (incomingByte[1] > incomingByte[1]) {
-      BackwardAndTurnLeft();
-    } else {
-      Backward();
-    }
-  }
 }
